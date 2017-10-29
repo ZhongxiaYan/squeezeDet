@@ -28,13 +28,42 @@ def _add_loss_summaries(total_loss):
   for l in losses + [total_loss]:
     tf.summary.scalar(l.op.name, l)
 
-def _variable_on_device(name, shape, initializer, trainable=True):
+# def Custom
+
+# @RegisterGradient("Custom")
+# def sgn(x):
+#   return tf.sign(x)
+
+def _ternarize(w, thres_ratio=0.7):
+    shape = w.get_shape()
+
+    thres = tf.stop_gradient(tf.reduce_max(tf.abs(w))) * thres_ratio
+
+    w_p = tf.get_variable('w_p', initializer=np.float32(np.abs(np.random.normal(0.0, 0.5))))
+    w_n = tf.get_variable('w_n', initializer=np.float32(np.abs(np.random.normal(0.0, 0.5))))
+    
+    g_thres = tf.cast(w > thres, tf.float32)
+    l_neg_thres = tf.cast(w < -thres, tf.float32)
+
+    mask_z = g_thres + l_neg_thres
+    mask_np = g_thres * w_p + l_neg_thres * w_n + (1.0 - mask_z)
+
+    # mask_p = tf.where(w > thres, ones * w_p, ones)
+    # mask_np = tf.where(w < -thres, ones * w_n, mask_p)
+    # mask_z = tf.cast((w > thres) | (w < -thres), tf.float32)
+    G = tf.get_default_graph()
+    with G.gradient_override_map({'Sign': 'Identity', 'Mul': 'Add'}):
+        w_ter = tf.sign(w) * mask_z
+    return w_ter * mask_np
+
+def _variable_on_device(name, shape, initializer, trainable=True, ternary=0):
   """Helper to create a Variable.
 
   Args:
     name: name of the variable
     shape: list of ints
     initializer: initializer for Variable
+    ternary: 0 if no ternarization, > 0 means the threshold_ratio
 
   Returns:
     Variable Tensor
@@ -46,9 +75,11 @@ def _variable_on_device(name, shape, initializer, trainable=True):
   else:
     var = tf.get_variable(
         name, shape, initializer=initializer, dtype=dtype, trainable=trainable)
+  if ternary:
+    return _ternarize(var, ternary)
   return var
 
-def _variable_with_weight_decay(name, shape, wd, initializer, trainable=True):
+def _variable_with_weight_decay(name, shape, wd, initializer, trainable=True, ternary=0):
   """Helper to create an initialized Variable with weight decay.
 
   Note that the Variable is initialized with a truncated normal distribution.
@@ -63,7 +94,7 @@ def _variable_with_weight_decay(name, shape, wd, initializer, trainable=True):
   Returns:
     Variable Tensor
   """
-  var = _variable_on_device(name, shape, initializer, trainable)
+  var = _variable_on_device(name, shape, initializer, trainable, ternary)
   if wd is not None and trainable:
     weight_decay = tf.multiply(tf.nn.l2_loss(var), wd, name='weight_loss')
     tf.add_to_collection('losses', weight_decay)
@@ -76,6 +107,9 @@ class ModelSkeleton:
     # a scalar tensor in range (0, 1]. Usually set to 0.5 in training phase and
     # 1.0 in evaluation phase
     self.keep_prob = 0.5 if mc.IS_TRAINING else 1.0
+
+    # if True, don't ternarize regardless of ternary parameter
+    self.override_ternary = False
 
     # image batch input
     self.ph_image_input = tf.placeholder(
@@ -341,7 +375,8 @@ class ModelSkeleton:
 
     _add_loss_summaries(self.loss)
 
-    opt = tf.train.MomentumOptimizer(learning_rate=lr, momentum=mc.MOMENTUM)
+    # opt = tf.train.MomentumOptimizer(learning_rate=lr, momentum=mc.MOMENTUM)
+    opt = tf.train.AdamOptimizer(learning_rate=lr)
     grads_vars = opt.compute_gradients(self.loss, tf.trainable_variables())
 
     with tf.variable_scope('clip_gradient') as scope:
@@ -420,11 +455,12 @@ class ModelSkeleton:
         gamma_val  = tf.constant_initializer(1.0)
         beta_val   = tf.constant_initializer(0.0)
 
+      ternary = 0 if self.override_ternary else mc.TERNARY
       # re-order the caffe kernel with shape [out, in, h, w] -> tf kernel with
       # shape [h, w, in, out]
       kernel = _variable_with_weight_decay(
           'kernels', shape=[size, size, int(channels), filters],
-          wd=mc.WEIGHT_DECAY, initializer=kernel_val, trainable=(not freeze))
+          wd=mc.WEIGHT_DECAY, initializer=kernel_val, trainable=(not freeze), ternary=ternary)
       self.model_params += [kernel]
       if conv_with_bias:
         biases = _variable_on_device('biases', [filters], bias_val,
@@ -487,7 +523,6 @@ class ModelSkeleton:
     Returns:
       A convolutional layer operation.
     """
-
     mc = self.mc
     use_pretrained_param = False
     if mc.LOAD_PRETRAINED_MODEL:
@@ -528,9 +563,10 @@ class ModelSkeleton:
             stddev=stddev, dtype=tf.float32)
         bias_init = tf.constant_initializer(0.0)
 
+      ternary = 0 if self.override_ternary else mc.TERNARY
       kernel = _variable_with_weight_decay(
           'kernels', shape=[size, size, int(channels), filters],
-          wd=mc.WEIGHT_DECAY, initializer=kernel_init, trainable=(not freeze))
+          wd=mc.WEIGHT_DECAY, initializer=kernel_init, trainable=(not freeze), ternary=ternary)
 
       biases = _variable_on_device('biases', [filters], bias_init, 
                                 trainable=(not freeze))
@@ -671,9 +707,10 @@ class ModelSkeleton:
             stddev=stddev, dtype=tf.float32)
         bias_init = tf.constant_initializer(0.0)
 
+      ternary = 0 if self.override_ternary else mc.TERNARY
       weights = _variable_with_weight_decay(
           'weights', shape=[dim, hiddens], wd=mc.WEIGHT_DECAY,
-          initializer=kernel_init)
+          initializer=kernel_init, ternary=ternary)
       biases = _variable_on_device('biases', [hiddens], bias_init)
       self.model_params += [weights, biases]
   

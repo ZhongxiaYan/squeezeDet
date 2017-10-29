@@ -87,7 +87,7 @@ def base_model_config(dataset='PASCAL_VOC'):
   cfg.LR_DECAY_FACTOR = 0.1
 
   # learning rate
-  cfg.LEARNING_RATE = 0.005
+  cfg.LEARNING_RATE = 1e-4
 
   # momentum
   cfg.MOMENTUM = 0.9
@@ -138,5 +138,7 @@ def base_model_config(dataset='PASCAL_VOC'):
 
   # indicate if the model is in training mode
   cfg.IS_TRAINING = False
+
+  cfg.TERNARY = 0.05
 
   return cfg
