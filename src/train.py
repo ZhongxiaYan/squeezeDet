@@ -236,7 +236,7 @@ def train():
         coord.request_stop(e)
 
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
-
+    
     saver = tf.train.Saver(tf.global_variables())
     summary_op = tf.summary.merge_all()
 

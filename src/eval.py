@@ -202,7 +202,9 @@ def evaluate():
     eval_summary_phs['num_det_per_image'] = ph
     eval_summary_ops.append(tf.summary.scalar('num_det_per_image', ph))
 
-    saver = tf.train.Saver(model.model_params)
+    untrainables = set(['conv1/kernels', 'conv1/biases'])
+    untrainable_vars = filter(lambda x: any((key in x.name) for key in untrainables), model.model_params)
+    saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES) + untrainable_vars)
 
     summary_writer = tf.summary.FileWriter(FLAGS.eval_dir, g)
     

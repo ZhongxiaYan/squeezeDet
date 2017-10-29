@@ -461,7 +461,8 @@ class ModelSkeleton:
       kernel = _variable_with_weight_decay(
           'kernels', shape=[size, size, int(channels), filters],
           wd=mc.WEIGHT_DECAY, initializer=kernel_val, trainable=(not freeze), ternary=ternary)
-      self.model_params += [kernel]
+      if not ternary:
+        self.model_params += [kernel]
       if conv_with_bias:
         biases = _variable_on_device('biases', [filters], bias_val,
                                      trainable=(not freeze))
@@ -570,7 +571,10 @@ class ModelSkeleton:
 
       biases = _variable_on_device('biases', [filters], bias_init, 
                                 trainable=(not freeze))
-      self.model_params += [kernel, biases]
+      if not ternary:
+        self.model_params += [kernel]
+
+      self.model_params += [biases]
 
       conv = tf.nn.conv2d(
           inputs, kernel, [1, stride, stride, 1], padding=padding,
@@ -712,8 +716,10 @@ class ModelSkeleton:
           'weights', shape=[dim, hiddens], wd=mc.WEIGHT_DECAY,
           initializer=kernel_init, ternary=ternary)
       biases = _variable_on_device('biases', [hiddens], bias_init)
-      self.model_params += [weights, biases]
-  
+      if not ternary:
+        self.model_params += [weights]
+      self.model_params += [biases]
+      
       outputs = tf.nn.bias_add(tf.matmul(inputs, weights), biases)
       if relu:
         outputs = tf.nn.relu(outputs, 'relu')
