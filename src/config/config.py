@@ -79,6 +79,8 @@ def base_model_config(dataset='PASCAL_VOC'):
 
   # loss coefficient for bounding box regression
   cfg.LOSS_COEF_BBOX = 10.0
+
+  cfg.OPTIMIZER = 'default'
                            
   # reduce step size after this many steps
   cfg.DECAY_STEPS = 10000
@@ -87,7 +89,7 @@ def base_model_config(dataset='PASCAL_VOC'):
   cfg.LR_DECAY_FACTOR = 0.1
 
   # learning rate
-  cfg.LEARNING_RATE = 1e-4
+  cfg.LEARNING_RATE = 0.005
 
   # momentum
   cfg.MOMENTUM = 0.9
@@ -138,7 +140,5 @@ def base_model_config(dataset='PASCAL_VOC'):
 
   # indicate if the model is in training mode
   cfg.IS_TRAINING = False
-
-  cfg.TERNARY = 0.05
 
   return cfg

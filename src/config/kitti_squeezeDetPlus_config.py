@@ -16,6 +16,8 @@ def kitti_squeezeDetPlus_config():
   mc.IMAGE_HEIGHT          = 375
   mc.BATCH_SIZE            = 20
 
+  mc.TERNARY               = 0
+
   mc.WEIGHT_DECAY          = 0.0001
   mc.LEARNING_RATE         = 0.01
   mc.DECAY_STEPS           = 10000
@@ -41,6 +43,10 @@ def kitti_squeezeDetPlus_config():
   mc.ANCHOR_BOX            = set_anchors(mc)
   mc.ANCHORS               = len(mc.ANCHOR_BOX)
   mc.ANCHOR_PER_GRID       = 9
+
+  if mc.TERNARY:
+    mc.OPTIMIZER = 'Adam'
+    mc.LEARNING_RATE = 1e-3
 
   return mc
 

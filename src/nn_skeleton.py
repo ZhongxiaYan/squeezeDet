@@ -71,9 +71,9 @@ def _variable_on_device(name, shape, initializer, trainable=True, ternary=0):
   # TODO(bichen): fix the hard-coded data type below
   dtype = tf.float32
   if not callable(initializer):
-    var = tf.get_variable(name, initializer=initializer, trainable=trainable)
+    var = tf.contrib.framework.model_variable(name, initializer=initializer, trainable=trainable)
   else:
-    var = tf.get_variable(
+    var = tf.contrib.framework.model_variable(
         name, shape, initializer=initializer, dtype=dtype, trainable=trainable)
   if ternary:
     return _ternarize(var, ternary)
@@ -107,9 +107,6 @@ class ModelSkeleton:
     # a scalar tensor in range (0, 1]. Usually set to 0.5 in training phase and
     # 1.0 in evaluation phase
     self.keep_prob = 0.5 if mc.IS_TRAINING else 1.0
-
-    # if True, don't ternarize regardless of ternary parameter
-    self.override_ternary = False
 
     # image batch input
     self.ph_image_input = tf.placeholder(
@@ -375,8 +372,10 @@ class ModelSkeleton:
 
     _add_loss_summaries(self.loss)
 
-    # opt = tf.train.MomentumOptimizer(learning_rate=lr, momentum=mc.MOMENTUM)
-    opt = tf.train.AdamOptimizer(learning_rate=lr)
+    opt = tf.train.MomentumOptimizer(learning_rate=lr, momentum=mc.MOMENTUM)
+    if mc.OPTIMIZER == 'Adam':
+      opt = tf.train.AdamOptimizer(learning_rate=lr)
+    
     grads_vars = opt.compute_gradients(self.loss, tf.trainable_variables())
 
     with tf.variable_scope('clip_gradient') as scope:
@@ -409,7 +408,7 @@ class ModelSkeleton:
   def _conv_bn_layer(
       self, inputs, conv_param_name, bn_param_name, scale_param_name, filters,
       size, stride, padding='SAME', freeze=False, relu=True,
-      conv_with_bias=False, stddev=0.001):
+      conv_with_bias=False, stddev=0.001, override_ternary=False):
     """ Convolution + BatchNorm + [relu] layer. Batch mean and var are treated
     as constant. Weights have to be initialized from a pre-trained model or
     restored from a checkpoint.
@@ -428,6 +427,8 @@ class ModelSkeleton:
       relu: whether to use relu or not.
       conv_with_bias: whether or not add bias term to the convolution output.
       stddev: standard deviation used for random weight initializer.
+      override_ternary: if True, don't ternarize regardless of ternary parameter
+
     Returns:
       A convolutional layer operation.
     """
@@ -455,7 +456,7 @@ class ModelSkeleton:
         gamma_val  = tf.constant_initializer(1.0)
         beta_val   = tf.constant_initializer(0.0)
 
-      ternary = 0 if self.override_ternary else mc.TERNARY
+      ternary = 0 if override_ternary else mc.TERNARY
       # re-order the caffe kernel with shape [out, in, h, w] -> tf kernel with
       # shape [h, w, in, out]
       kernel = _variable_with_weight_decay(
@@ -507,7 +508,7 @@ class ModelSkeleton:
 
   def _conv_layer(
       self, layer_name, inputs, filters, size, stride, padding='SAME',
-      freeze=False, xavier=False, relu=True, stddev=0.001):
+      freeze=False, xavier=False, relu=True, stddev=0.001, override_ternary=False):
     """Convolutional layer operation constructor.
 
     Args:
@@ -521,6 +522,8 @@ class ModelSkeleton:
       xavier: whether to use xavier weight initializer or not.
       relu: whether to use relu or not.
       stddev: standard deviation used for random weight initializer.
+      override_ternary: if True, don't ternarize regardless of ternary parameter
+
     Returns:
       A convolutional layer operation.
     """
@@ -564,7 +567,7 @@ class ModelSkeleton:
             stddev=stddev, dtype=tf.float32)
         bias_init = tf.constant_initializer(0.0)
 
-      ternary = 0 if self.override_ternary else mc.TERNARY
+      ternary = 0 if override_ternary else mc.TERNARY
       kernel = _variable_with_weight_decay(
           'kernels', shape=[size, size, int(channels), filters],
           wd=mc.WEIGHT_DECAY, initializer=kernel_init, trainable=(not freeze), ternary=ternary)
@@ -628,7 +631,7 @@ class ModelSkeleton:
   
   def _fc_layer(
       self, layer_name, inputs, hiddens, flatten=False, relu=True,
-      xavier=False, stddev=0.001):
+      xavier=False, stddev=0.001, override_ternary=False):
     """Fully connected layer operation constructor.
 
     Args:
@@ -642,6 +645,8 @@ class ModelSkeleton:
       relu: whether to use relu or not.
       xavier: whether to use xavier weight initializer or not.
       stddev: standard deviation used for random weight initializer.
+      override_ternary: if True, don't ternarize regardless of ternary parameter
+
     Returns:
       A fully connected layer operation.
     """
@@ -711,7 +716,7 @@ class ModelSkeleton:
             stddev=stddev, dtype=tf.float32)
         bias_init = tf.constant_initializer(0.0)
 
-      ternary = 0 if self.override_ternary else mc.TERNARY
+      ternary = 0 if override_ternary else mc.TERNARY
       weights = _variable_with_weight_decay(
           'weights', shape=[dim, hiddens], wd=mc.WEIGHT_DECAY,
           initializer=kernel_init, ternary=ternary)

@@ -204,7 +204,7 @@ def evaluate():
 
     untrainables = set(['conv1/kernels', 'conv1/biases'])
     untrainable_vars = filter(lambda x: any((key in x.name) for key in untrainables), model.model_params)
-    saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES) + untrainable_vars)
+    saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.MODEL_VARIABLES))
 
     summary_writer = tf.summary.FileWriter(FLAGS.eval_dir, g)
     

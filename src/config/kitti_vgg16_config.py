@@ -41,6 +41,7 @@ def kitti_vgg16_config():
   mc.ANCHOR_BOX            = set_anchors(mc)
   mc.ANCHORS               = len(mc.ANCHOR_BOX)
   mc.ANCHOR_PER_GRID       = 9
+  mc.TERNARY               = 0
 
   return mc
 

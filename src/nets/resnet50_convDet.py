@@ -40,7 +40,7 @@ class ResNet50ConvDet(ModelSkeleton):
 
     conv1 = self._conv_bn_layer(
         self.image_input, 'conv1', 'bn_conv1', 'scale_conv1', filters=64,
-        size=7, stride=2, freeze=True, conv_with_bias=True)
+        size=7, stride=2, freeze=True, conv_with_bias=True, override_ternary=True)
     pool1 = self._pooling_layer(
         'pool1', conv1, size=3, stride=2, padding='VALID')
 
@@ -129,7 +129,7 @@ class ResNet50ConvDet(ModelSkeleton):
     num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + 4)
     self.preds = self._conv_layer(
         'conv5', dropout4, filters=num_output, size=3, stride=1,
-        padding='SAME', xavier=False, relu=False, stddev=0.0001)
+        padding='SAME', xavier=False, relu=False, stddev=0.0001, override_ternary=True)
 
   def _res_branch(
       self, inputs, layer_name, in_filters, out_filters, down_sample=False,
