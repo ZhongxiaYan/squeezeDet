@@ -28,12 +28,6 @@ def _add_loss_summaries(total_loss):
   for l in losses + [total_loss]:
     tf.summary.scalar(l.op.name, l)
 
-# def Custom
-
-# @RegisterGradient("Custom")
-# def sgn(x):
-#   return tf.sign(x)
-
 def _ternarize(w, thres_ratio=0.7):
     shape = w.get_shape()
 
@@ -153,9 +147,6 @@ class ModelSkeleton:
         self.box_input, self.labels = tf.train.batch(
             self.FIFOQueue.dequeue(), batch_size=mc.BATCH_SIZE,
             capacity=mc.QUEUE_CAPACITY) 
-
-    # model parameters
-    self.model_params = []
 
     # model size counter
     self.model_size_counter = [] # array of tuple of layer name, parameter size
@@ -462,19 +453,15 @@ class ModelSkeleton:
       kernel = _variable_with_weight_decay(
           'kernels', shape=[size, size, int(channels), filters],
           wd=mc.WEIGHT_DECAY, initializer=kernel_val, trainable=(not freeze), ternary=ternary)
-      if not ternary:
-        self.model_params += [kernel]
       if conv_with_bias:
         biases = _variable_on_device('biases', [filters], bias_val,
-                                     trainable=(not freeze))
-        self.model_params += [biases]
+                                     trainable=(not freeze), ternary=ternary)
       gamma = _variable_on_device('gamma', [filters], gamma_val,
                                   trainable=(not freeze))
       beta  = _variable_on_device('beta', [filters], beta_val,
                                   trainable=(not freeze))
       mean  = _variable_on_device('mean', [filters], mean_val, trainable=False)
       var   = _variable_on_device('var', [filters], var_val, trainable=False)
-      self.model_params += [gamma, beta, mean, var]
 
       conv = tf.nn.conv2d(
           inputs, kernel, [1, stride, stride, 1], padding=padding,
@@ -574,10 +561,6 @@ class ModelSkeleton:
 
       biases = _variable_on_device('biases', [filters], bias_init, 
                                 trainable=(not freeze))
-      if not ternary:
-        self.model_params += [kernel]
-
-      self.model_params += [biases]
 
       conv = tf.nn.conv2d(
           inputs, kernel, [1, stride, stride, 1], padding=padding,
@@ -721,9 +704,6 @@ class ModelSkeleton:
           'weights', shape=[dim, hiddens], wd=mc.WEIGHT_DECAY,
           initializer=kernel_init, ternary=ternary)
       biases = _variable_on_device('biases', [hiddens], bias_init)
-      if not ternary:
-        self.model_params += [weights]
-      self.model_params += [biases]
       
       outputs = tf.nn.bias_add(tf.matmul(inputs, weights), biases)
       if relu:
