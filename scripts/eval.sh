@@ -60,11 +60,5 @@ done
 # =========================================================================== #
 # command for squeezeDet:
 # =========================================================================== #
-python ./src/eval.py \
-  --dataset=KITTI \
-  --data_path=./data/KITTI \
-  --image_set=$IMAGE_SET \
-  --eval_dir="$EVAL_DIR/$IMAGE_SET" \
-  --checkpoint_path="$EVAL_DIR/train" \
-  --net=$NET \
-  --gpu=$GPUID
+echo "python ./src/eval.py --dataset=KITTI --data_path=./data/KITTI --image_set=$IMAGE_SET --eval_dir=$EVAL_DIR/$IMAGE_SET --checkpoint_path=$EVAL_DIR/train --net=$NET --gpu=$GPUID"
+python ./src/eval.py --dataset=KITTI --data_path=./data/KITTI --image_set=$IMAGE_SET --eval_dir="$EVAL_DIR/$IMAGE_SET" --checkpoint_path="$EVAL_DIR/train" --net=$NET --gpu=$GPUID

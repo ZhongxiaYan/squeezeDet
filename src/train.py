@@ -1,16 +1,9 @@
 # Author: Bichen Wu (bichen@berkeley.edu) 08/25/2016
-
-"""Train"""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
 import cv2
 from datetime import datetime
-import os.path
-import sys
-import time
+import os, sys, time
 
 import numpy as np
 from six.moves import xrange
@@ -21,6 +14,8 @@ from config import *
 from dataset import pascal_voc, kitti
 from utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
 from nets import *
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -98,8 +93,7 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
             for idx, prob in zip(det_class, det_prob)],
         (0, 0, 255))
 
-
-def train():
+def main(argv):
   """Train SqueezeDet model"""
   assert FLAGS.dataset == 'KITTI', \
       'Currently only support KITTI dataset'
@@ -111,6 +105,7 @@ def train():
     assert FLAGS.net == 'vgg16' or FLAGS.net == 'resnet50' \
         or FLAGS.net == 'squeezeDet' or FLAGS.net == 'squeezeDet+', \
         'Selected neural net architecture not supported: {}'.format(FLAGS.net)
+
     if FLAGS.net == 'vgg16':
       mc = kitti_vgg16_config()
       mc.IS_TRAINING = True
@@ -235,19 +230,21 @@ def train():
       except Exception, e:
         coord.request_stop(e)
 
-    sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.75)
+    sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options))
     
     saver = tf.train.Saver(tf.global_variables())
     summary_op = tf.summary.merge_all()
 
-    ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
-    if ckpt and ckpt.model_checkpoint_path:
-        saver.restore(sess, ckpt.model_checkpoint_path)
-
     summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
 
-    init = tf.global_variables_initializer()
-    sess.run(init)
+    ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
+    if ckpt and ckpt.model_checkpoint_path:
+      print('Loading checkpoint:', ckpt.model_checkpoint_path)
+      saver.restore(sess, ckpt.model_checkpoint_path)
+    else:
+      print('No checkpoint. Initialize from scratch')
+      sess.run(tf.global_variables_initializer())
 
     coord = tf.train.Coordinator()
 
@@ -262,8 +259,8 @@ def train():
     threads = tf.train.start_queue_runners(coord=coord, sess=sess)
     run_options = tf.RunOptions(timeout_in_ms=60000)
 
-    # try: 
-    for step in xrange(FLAGS.max_steps):
+    step = tf.train.global_step(sess, model.global_step)
+    while step < FLAGS.max_steps:
       if coord.should_stop():
         sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
         coord.request_stop()
@@ -295,7 +292,7 @@ def train():
         summary_writer.add_summary(viz_summary, step)
         summary_writer.flush()
 
-        print ('conf_loss: {}, bbox_loss: {}, class_loss: {}'.
+        print('conf_loss: {}, bbox_loss: {}, class_loss: {}'.
             format(conf_loss, bbox_loss, class_loss))
       else:
         if mc.NUM_THREAD > 0:
@@ -314,13 +311,14 @@ def train():
           'Model diverged. Total loss: {}, conf_loss: {}, bbox_loss: {}, ' \
           'class_loss: {}'.format(loss_value, conf_loss, bbox_loss, class_loss)
 
+      step = tf.train.global_step(sess, model.global_step)
       if step % 10 == 0:
         num_images_per_step = mc.BATCH_SIZE
         images_per_sec = num_images_per_step / duration
         sec_per_batch = float(duration)
         format_str = ('%s: step %d, loss = %.2f (%.1f images/sec; %.3f '
                       'sec/batch)')
-        print (format_str % (datetime.now(), step, loss_value,
+        print(format_str % (datetime.now(), step, loss_value,
                              images_per_sec, sec_per_batch))
         sys.stdout.flush()
 
@@ -333,13 +331,6 @@ def train():
     # finally:
     #   coord.request_stop()
     #   coord.join(threads)
-
-def main(argv=None):  # pylint: disable=unused-argument
-  if tf.gfile.Exists(FLAGS.train_dir):
-    tf.gfile.DeleteRecursively(FLAGS.train_dir)
-  tf.gfile.MakeDirs(FLAGS.train_dir)
-  train()
-
 
 if __name__ == '__main__':
   tf.app.run()

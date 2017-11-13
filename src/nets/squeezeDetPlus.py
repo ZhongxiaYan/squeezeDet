@@ -45,6 +45,8 @@ class SqueezeDetPlus(ModelSkeleton):
 
     fire2 = self._fire_layer(
         'fire2', pool1, s1x1=96, e1x1=64, e3x3=64, freeze=False)
+
+    self.override_ternary = True
     fire3 = self._fire_layer(
         'fire3', fire2, s1x1=96, e1x1=64, e3x3=64, freeze=False)
     fire4 = self._fire_layer(
@@ -63,8 +65,12 @@ class SqueezeDetPlus(ModelSkeleton):
     pool8 = self._pooling_layer(
         'pool8', fire8, size=3, stride=2, padding='VALID')
 
+    self.override_ternary = False
+
     fire9 = self._fire_layer(
         'fire9', pool8, s1x1=384, e1x1=256, e3x3=256, freeze=False)
+
+    self.override_ternary = True
 
     # Two extra fire modules that are not trained before
     fire10 = self._fire_layer(
@@ -72,6 +78,8 @@ class SqueezeDetPlus(ModelSkeleton):
     fire11 = self._fire_layer(
         'fire11', fire10, s1x1=384, e1x1=256, e3x3=256, freeze=False)
     dropout11 = tf.nn.dropout(fire11, self.keep_prob, name='drop11')
+
+    self.override_ternary = False
     
     num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + 4)
     self.preds = self._conv_layer(

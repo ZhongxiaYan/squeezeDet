@@ -2,15 +2,11 @@
 
 """Evaluation"""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
 import cv2
 from datetime import datetime
-import os.path
-import sys
-import time
+import os, sys, time
 
 import numpy as np
 from six.moves import xrange
@@ -20,6 +16,8 @@ from config import *
 from dataset import pascal_voc, kitti
 from utils.util import bbox_transform, Timer
 from nets import *
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -49,7 +47,8 @@ def eval_once(
     saver, ckpt_path, summary_writer, eval_summary_ops, eval_summary_phs, imdb,
     model):
 
-  with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+  gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
+  with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)) as sess:
 
     # Restores from checkpoint
     saver.restore(sess, ckpt_path)
@@ -133,8 +132,7 @@ def eval_once(
     for sum_str in eval_summary_str:
       summary_writer.add_summary(sum_str, global_step)
 
-def evaluate():
-  """Evaluate."""
+def main(argv=None):
   assert FLAGS.dataset == 'KITTI', \
       'Currently only supports KITTI dataset'
 
@@ -237,14 +235,6 @@ def evaluate():
             print ('Wait {:d}s for new checkpoints to be saved ... '
                       .format(FLAGS.eval_interval_secs))
             time.sleep(FLAGS.eval_interval_secs)
-
-
-def main(argv=None):  # pylint: disable=unused-argument
-  if tf.gfile.Exists(FLAGS.eval_dir):
-    tf.gfile.DeleteRecursively(FLAGS.eval_dir)
-  tf.gfile.MakeDirs(FLAGS.eval_dir)
-  evaluate()
-
 
 if __name__ == '__main__':
   tf.app.run()

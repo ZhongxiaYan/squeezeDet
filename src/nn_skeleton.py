@@ -28,13 +28,13 @@ def _add_loss_summaries(total_loss):
   for l in losses + [total_loss]:
     tf.summary.scalar(l.op.name, l)
 
-def _ternarize(w, thres_ratio=0.7):
+def _ternarize(name, w, thres_ratio):
     shape = w.get_shape()
 
     thres = tf.stop_gradient(tf.reduce_max(tf.abs(w))) * thres_ratio
 
-    w_p = tf.get_variable('w_p', initializer=np.float32(np.abs(np.random.normal(0.0, 0.5))))
-    w_n = tf.get_variable('w_n', initializer=np.float32(np.abs(np.random.normal(0.0, 0.5))))
+    w_p = tf.contrib.framework.model_variable(name + '/w_p', initializer=np.float32(np.abs(np.random.normal(0.0, 0.5))))
+    w_n = tf.contrib.framework.model_variable(name + '/w_n', initializer=np.float32(np.abs(np.random.normal(0.0, 0.5))))
     
     g_thres = tf.cast(w > thres, tf.float32)
     l_neg_thres = tf.cast(w < -thres, tf.float32)
@@ -69,8 +69,8 @@ def _variable_on_device(name, shape, initializer, trainable=True, ternary=0):
   else:
     var = tf.contrib.framework.model_variable(
         name, shape, initializer=initializer, dtype=dtype, trainable=trainable)
-  if ternary:
-    return _ternarize(var, ternary)
+  if ternary and trainable:
+    return _ternarize(name, var, ternary)
   return var
 
 def _variable_with_weight_decay(name, shape, wd, initializer, trainable=True, ternary=0):
@@ -147,6 +147,8 @@ class ModelSkeleton:
         self.box_input, self.labels = tf.train.batch(
             self.FIFOQueue.dequeue(), batch_size=mc.BATCH_SIZE,
             capacity=mc.QUEUE_CAPACITY) 
+
+    self.override_ternary = False
 
     # model size counter
     self.model_size_counter = [] # array of tuple of layer name, parameter size
@@ -447,7 +449,7 @@ class ModelSkeleton:
         gamma_val  = tf.constant_initializer(1.0)
         beta_val   = tf.constant_initializer(0.0)
 
-      ternary = 0 if override_ternary else mc.TERNARY
+      ternary = 0 if override_ternary or self.override_ternary else mc.TERNARY
       # re-order the caffe kernel with shape [out, in, h, w] -> tf kernel with
       # shape [h, w, in, out]
       kernel = _variable_with_weight_decay(
@@ -554,13 +556,13 @@ class ModelSkeleton:
             stddev=stddev, dtype=tf.float32)
         bias_init = tf.constant_initializer(0.0)
 
-      ternary = 0 if override_ternary else mc.TERNARY
+      ternary = 0 if override_ternary or self.override_ternary else mc.TERNARY
       kernel = _variable_with_weight_decay(
           'kernels', shape=[size, size, int(channels), filters],
           wd=mc.WEIGHT_DECAY, initializer=kernel_init, trainable=(not freeze), ternary=ternary)
 
       biases = _variable_on_device('biases', [filters], bias_init, 
-                                trainable=(not freeze))
+                                trainable=(not freeze), ternary=ternary)
 
       conv = tf.nn.conv2d(
           inputs, kernel, [1, stride, stride, 1], padding=padding,
@@ -699,7 +701,7 @@ class ModelSkeleton:
             stddev=stddev, dtype=tf.float32)
         bias_init = tf.constant_initializer(0.0)
 
-      ternary = 0 if override_ternary else mc.TERNARY
+      ternary = 0 if override_ternary or self.override_ternary else mc.TERNARY
       weights = _variable_with_weight_decay(
           'weights', shape=[dim, hiddens], wd=mc.WEIGHT_DECAY,
           initializer=kernel_init, ternary=ternary)
