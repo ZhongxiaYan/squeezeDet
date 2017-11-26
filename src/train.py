@@ -130,6 +130,8 @@ def main(argv):
     imdb = kitti(FLAGS.image_set, FLAGS.data_path, mc)
 
     # save model size, flops, activations by layers
+    if not os.path.exists(FLAGS.train_dir):
+      os.makedirs(FLAGS.train_dir)
     with open(os.path.join(FLAGS.train_dir, 'model_metrics.txt'), 'w') as f:
       f.write('Number of parameter by layer:\n')
       count = 0
@@ -232,7 +234,7 @@ def main(argv):
 
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.75)
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options))
-    
+
     saver = tf.train.Saver(tf.global_variables())
     summary_op = tf.summary.merge_all()
 
