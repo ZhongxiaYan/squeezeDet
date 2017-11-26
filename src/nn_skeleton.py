@@ -2,12 +2,9 @@
 
 """Neural network model base class."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
-import os
-import sys
+import os, sys
 
 from utils import util
 from easydict import EasyDict as edict

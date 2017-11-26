@@ -37,6 +37,7 @@ class SqueezeDetPlus(ModelSkeleton):
           '  {}'.format(mc.PRETRAINED_MODEL_PATH)
       self.caffemodel_weight = joblib.load(mc.PRETRAINED_MODEL_PATH)
 
+    self.override_ternary = False
     conv1 = self._conv_layer(
         'conv1', self.image_input, filters=96, size=7, stride=2,
         padding='VALID', freeze=True, override_ternary=True)
@@ -46,7 +47,6 @@ class SqueezeDetPlus(ModelSkeleton):
     fire2 = self._fire_layer(
         'fire2', pool1, s1x1=96, e1x1=64, e3x3=64, freeze=False)
 
-    self.override_ternary = True
     fire3 = self._fire_layer(
         'fire3', fire2, s1x1=96, e1x1=64, e3x3=64, freeze=False)
     fire4 = self._fire_layer(
@@ -65,12 +65,8 @@ class SqueezeDetPlus(ModelSkeleton):
     pool8 = self._pooling_layer(
         'pool8', fire8, size=3, stride=2, padding='VALID')
 
-    self.override_ternary = False
-
     fire9 = self._fire_layer(
         'fire9', pool8, s1x1=384, e1x1=256, e3x3=256, freeze=False)
-
-    self.override_ternary = True
 
     # Two extra fire modules that are not trained before
     fire10 = self._fire_layer(
@@ -79,13 +75,11 @@ class SqueezeDetPlus(ModelSkeleton):
         'fire11', fire10, s1x1=384, e1x1=256, e3x3=256, freeze=False)
     dropout11 = tf.nn.dropout(fire11, self.keep_prob, name='drop11')
 
-    self.override_ternary = False
-    
     num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + 4)
     self.preds = self._conv_layer(
         'conv12', dropout11, filters=num_output, size=3, stride=1,
         padding='SAME', xavier=False, relu=False, stddev=0.0001, override_ternary=True)
-    
+
   def _fire_layer(self, layer_name, inputs, s1x1, e1x1, e3x3, stddev=0.01,
       freeze=False):
     """Fire layer constructor.
@@ -103,12 +97,15 @@ class SqueezeDetPlus(ModelSkeleton):
 
     sq1x1 = self._conv_layer(
         layer_name+'/squeeze1x1', inputs, filters=s1x1, size=1, stride=1,
-        padding='SAME', stddev=stddev, freeze=freeze)
+        padding='SAME', stddev=stddev, freeze=freeze, override_ternary=True)
     ex1x1 = self._conv_layer(
         layer_name+'/expand1x1', sq1x1, filters=e1x1, size=1, stride=1,
-        padding='SAME', stddev=stddev, freeze=freeze)
+        padding='SAME', stddev=stddev, freeze=freeze, override_ternary=True)
     ex3x3 = self._conv_layer(
-        layer_name+'/expand3x3', sq1x1, filters=e3x3, size=3, stride=1,
+        layer_name+'/expand3x3', sq1x1, filters=e3x3 // 2, size=3, stride=1,
         padding='SAME', stddev=stddev, freeze=freeze)
+    ex3x3_full = self._conv_layer(
+        layer_name+'/expand3x3_full', sq1x1, filters=e3x3 // 2, size=3, stride=1,
+        padding='SAME', stddev=stddev, freeze=freeze, override_ternary=True)
 
-    return tf.concat([ex1x1, ex3x3], 3, name=layer_name+'/concat')
+    return tf.concat([ex1x1, ex3x3, ex3x3_full], 3, name=layer_name+'/concat')

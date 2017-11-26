@@ -204,7 +204,6 @@ def main(argv=None):
 
     summary_writer = tf.summary.FileWriter(FLAGS.eval_dir, g)
     
-    ckpts = set() 
     while True:
       if FLAGS.run_once:
         # When run_once is true, checkpoint_path should point to the exact
@@ -216,8 +215,9 @@ def main(argv=None):
       else:
         # When run_once is false, checkpoint_path should point to the directory
         # that stores checkpoint files.
+        ckpts = set()
         ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_path)
-        if ckpt and ckpt.model_checkpoint_path:
+        if ckpt:
           if ckpt.model_checkpoint_path in ckpts:
             # Do not evaluate on the same checkpoint
             print ('Wait {:d}s for new checkpoints to be saved ... '

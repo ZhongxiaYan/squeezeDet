@@ -126,7 +126,7 @@ def main(argv):
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = SqueezeDetPlus(mc)
-
+       
     imdb = kitti(FLAGS.image_set, FLAGS.data_path, mc)
 
     # save model size, flops, activations by layers
