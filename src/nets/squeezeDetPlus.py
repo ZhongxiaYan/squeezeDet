@@ -37,7 +37,7 @@ class SqueezeDetPlus(ModelSkeleton):
           '  {}'.format(mc.PRETRAINED_MODEL_PATH)
       self.caffemodel_weight = joblib.load(mc.PRETRAINED_MODEL_PATH)
 
-    self.override_ternary = False
+    self.override_ternary = True
     conv1 = self._conv_layer(
         'conv1', self.image_input, filters=96, size=7, stride=2,
         padding='VALID', freeze=True, override_ternary=True)
@@ -60,6 +60,9 @@ class SqueezeDetPlus(ModelSkeleton):
         'fire6', fire5, s1x1=288, e1x1=192, e3x3=192, freeze=False)
     fire7 = self._fire_layer(
         'fire7', fire6, s1x1=288, e1x1=192, e3x3=192, freeze=False)
+
+    self.override_ternary = False
+
     fire8 = self._fire_layer(
         'fire8', fire7, s1x1=384, e1x1=256, e3x3=256, freeze=False)
     pool8 = self._pooling_layer(
@@ -101,11 +104,16 @@ class SqueezeDetPlus(ModelSkeleton):
     ex1x1 = self._conv_layer(
         layer_name+'/expand1x1', sq1x1, filters=e1x1, size=1, stride=1,
         padding='SAME', stddev=stddev, freeze=freeze, override_ternary=True)
-    ex3x3 = self._conv_layer(
-        layer_name+'/expand3x3', sq1x1, filters=e3x3 // 2, size=3, stride=1,
-        padding='SAME', stddev=stddev, freeze=freeze)
-    ex3x3_full = self._conv_layer(
-        layer_name+'/expand3x3_full', sq1x1, filters=e3x3 // 2, size=3, stride=1,
-        padding='SAME', stddev=stddev, freeze=freeze, override_ternary=True)
-
-    return tf.concat([ex1x1, ex3x3, ex3x3_full], 3, name=layer_name+'/concat')
+    if self.override_ternary:
+        ex3x3 = self._conv_layer(
+            layer_name+'/expand3x3', sq1x1, filters=e3x3, size=3, stride=1,
+            padding='SAME', stddev=stddev, freeze=freeze)
+        return tf.concat([ex1x1, ex3x3], 3, name=layer_name+'/concat')
+    else:
+        ex3x3 = self._conv_layer(
+            layer_name+'/expand3x3', sq1x1, filters=e3x3 // 2, size=3, stride=1,
+            padding='SAME', stddev=stddev, freeze=freeze)
+        ex3x3_full = self._conv_layer(
+            layer_name+'/expand3x3_full', sq1x1, filters=e3x3 // 2, size=3, stride=1,
+            padding='SAME', stddev=stddev, freeze=freeze, override_ternary=True)
+        return tf.concat([ex1x1, ex3x3, ex3x3_full], 3, name=layer_name+'/concat')

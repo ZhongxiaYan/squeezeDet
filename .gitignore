@@ -1,3 +1,4 @@
 *pyc
-data
-logs
+.ipynb_checkpoints/
+data/
+logs/

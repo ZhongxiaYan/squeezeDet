@@ -1,0 +1,7 @@
+{
+    PRINT_STEP : 10,
+    SUMMARY_STEP : 250,
+    CHECKPOINT_STEP : 500,
+    MAX_STEPS : 15000,
+    TERNARY_RATIO : 0
+}

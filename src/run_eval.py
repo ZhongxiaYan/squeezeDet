@@ -30,7 +30,7 @@ def main(argv=None):
         config_path = config_dir + 'config.json'
         with open(config_path, 'r+') as f:
             mc = edict(json.load(f))
-
+        mc.BATCH_SIZE = 1
         model = load_model(mc)
 
         imdb = kitti('test', './data/KITTI', mc)
@@ -52,7 +52,7 @@ def main(argv=None):
             eval_summary_ops.append(tf.summary.scalar(name, ph))
             eval_summary_phs[name] = ph
 
-        saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.MODEL_VARIABLES))
+        saver = tf.train.Saver(tf.global_variables())
 
         summary_writer = tf.summary.FileWriter(test_dir)
         while True:
@@ -67,7 +67,6 @@ def main(argv=None):
                 eval_checkpoint(saver, test_dir, ckpt.model_checkpoint_path, summary_writer, eval_summary_ops, eval_summary_phs, imdb, model)
 
 def eval_checkpoint(saver, test_dir, checkpoint_path, summary_writer, eval_summary_ops, eval_summary_phs, imdb, model):
-
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)) as sess:
 
