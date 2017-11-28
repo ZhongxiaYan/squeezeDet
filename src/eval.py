@@ -49,13 +49,16 @@ def eval_once(
 
   gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
   with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)) as sess:
-
-    # Restores from checkpoint
-    saver.restore(sess, ckpt_path)
     # Assuming model_checkpoint_path looks something like:
     #   /ckpt_dir/model.ckpt-0,
     # extract global_step from it.
     global_step = ckpt_path.split('/')[-1].split('-')[-1]
+    
+    if os.path.exists(os.path.join(FLAGS.eval_dir, 'detection_files_' + str(global_step))):
+        return
+    
+    # Restores from checkpoint
+    saver.restore(sess, ckpt_path)
 
     num_images = len(imdb.image_idx)
 
@@ -204,6 +207,7 @@ def main(argv=None):
 
     summary_writer = tf.summary.FileWriter(FLAGS.eval_dir, g)
     
+    ckpts = set()
     while True:
       if FLAGS.run_once:
         # When run_once is true, checkpoint_path should point to the exact
@@ -215,7 +219,6 @@ def main(argv=None):
       else:
         # When run_once is false, checkpoint_path should point to the directory
         # that stores checkpoint files.
-        ckpts = set()
         ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_path)
         if ckpt:
           if ckpt.model_checkpoint_path in ckpts:

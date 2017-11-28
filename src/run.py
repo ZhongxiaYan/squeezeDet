@@ -22,106 +22,112 @@ tf.app.flags.DEFINE_boolean('train', True, """True for training phase, false for
 
 def main(argv):
     os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
-    model_dir = Model + FLAGS.model + '/'
+    model_dir = Models + FLAGS.model + '/'
 
     mc = kitti_squeezeDetPlus_config()
     config_dir = model_dir + FLAGS.config + '/'
     config_path = config_dir + 'config.json'
     with open(config_path, 'r+') as f: # load custom params
-        mc.update(edict(json.load(f)))
+        for key, value in json.load(f).items():
+            mc[key] = value
     
-    mc.IS_TRAINING = FLAGS.train
-    mc.PRETRAINED_MODEL_PATH = model_dir + 'pretrained.pkl'
+    with tf.Graph().as_default():
+        mc.IS_TRAINING = FLAGS.train
+        mc.PRETRAINED_MODEL_PATH = model_dir + 'pretrained.pkl'
 
-    sys.path.append(model_dir)
-    from load_model import load_model
-    model = load_model(mc)
+        sys.path.append(model_dir)
+        from load_model import load_model
+        model = load_model(mc)
 
-    train_dir = config_dir + 'train/'
-    test_dir = config_dir + 'test/'
-    make_dir(train_dir)
-    make_dir(test_dir)
+        train_dir = config_dir + 'train/'
+        test_dir = config_dir + 'test/'
+        make_dir(train_dir)
+        make_dir(test_dir)
 
-    imdb = kitti('train' if mc.IS_TRAINING else 'test', Root + 'data/KITTI', mc)
+        imdb = kitti('train' if mc.IS_TRAINING else 'test', Root + 'data/KITTI', mc)
 
-    saver = tf.train.Saver(tf.global_variables())
-    summary_writer = tf.summary.FileWriter(train_dir if mc.IS_TRAINING else test_dir)
+        saver = tf.train.Saver(tf.global_variables())
+        summary_writer = tf.summary.FileWriter(train_dir if mc.IS_TRAINING else test_dir)
 
-    if mc.IS_TRAINING:
-        save_model_statistics(model, train_dir + 'model_metrics.txt')
-        summary_op = tf.summary.merge_all()
+        if mc.IS_TRAINING:
+            save_model_statistics(model, train_dir + 'model_metrics.txt')
 
-        ckpt = tf.train.get_checkpoint_state(train_dir)
-        if ckpt:
-            print('Loading checkpoint:', ckpt.model_checkpoint_path)
-            saver.restore(sess, ckpt.model_checkpoint_path)
-        else:
-            print('No checkpoint. Initialize from scratch')
-            sess.run(tf.global_variables_initializer())
+            coord = tf.train.Coordinator()
+            summary_op = tf.summary.merge_all()
 
-        coord = tf.train.Coordinator()
-
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.75)
-        with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)) as sess:
-            if mc.NUM_THREAD > 0:
-                enq_threads = []
-                for _ in range(mc.NUM_THREAD):
-                    enq_thread = threading.Thread(target=enqueue, args=[model, sess, coord, imdb])
-                    enq_thread.start()
-                    enq_threads.append(enq_thread)
-
-            threads = tf.train.start_queue_runners(coord=coord, sess=sess)
-            run_options = tf.RunOptions(timeout_in_ms=60000)
-
-            step = tf.train.global_step(sess, model.global_step)
-            while step < mc.MAX_STEPS:
-                if coord.should_stop():
-                    sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
-                    coord.request_stop()
-                    coord.join(threads)
-                    break
-
-                start_time = time.time()
-                if step % mc.SUMMARY_STEP == 0:
-                    summary_step(model, sess, imdb, summary_writer)
+            gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.75)
+            with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)) as sess:
+                ckpt = tf.train.get_checkpoint_state(train_dir)
+                if ckpt:
+                    print('Loading checkpoint:', ckpt.model_checkpoint_path)
+                    saver.restore(sess, ckpt.model_checkpoint_path)
                 else:
-                    ops = [model.train_op, model.loss, model.conf_loss, model.bbox_loss, model.class_loss]
-                    if mc.NUM_THREAD > 0:
-                        _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(ops, options=run_options)
-                    else:
-                        feed_dict, _, _, _ = _load_data(imdb, model, load_to_placeholder=False)
-                        _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(ops, feed_dict=feed_dict)
-                duration = time.time() - start_time
+                    print('No checkpoint. Initialize from scratch')
+                    sess.run(tf.global_variables_initializer())
 
-                assert not np.isnan(loss_value), 'Model diverged. Total loss: %s, conf_loss: %s, bbox_loss: %s, class_loss: %s' % (loss_value, conf_loss, bbox_loss, class_loss)
+                    if mc.NUM_THREAD > 0:
+                        enq_threads = []
+                        for _ in range(mc.NUM_THREAD):
+                            enq_thread = threading.Thread(target=enqueue, args=[model, sess, coord, imdb])
+                            enq_thread.start()
+                            enq_threads.append(enq_thread)
+
+                threads = tf.train.start_queue_runners(coord=coord, sess=sess)
+                run_options = tf.RunOptions(timeout_in_ms=60000)
 
                 step = tf.train.global_step(sess, model.global_step)
-                if step % mc.PRINT_STEP == 0:
-                    print('step %d, loss = %.2f' % (step, loss_value)
-                if step % mc.CHECKPOINT_STEP == 0 or step == mc.MAX_STEPS:
-                    saver.save(sess, train_dir + 'model.ckpt', global_step=step)
-    else:
-        ap_names = []
-        for cls in imdb.classes:
-            for diff in 'easy', 'medium', 'hard':
-                ap_names.append('APs/%s_%s' % (cls, diff))
+                while step < mc.MAX_STEPS:
+                    if coord.should_stop():
+                        sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
+                        coord.request_stop()
+                        coord.join(threads)
+                        break
 
-        eval_summary_phs = {}
-        for name in ap_names + ['APs/mAP', 'timing/im_detect', 'timing/im_read', 'timing/post_proc', 'num_det_per_image']:
-            eval_summary_phs[name] = tf.placeholder(tf.float32)
+                    start_time = time.time()
+                    if step % mc.SUMMARY_STEP == 0:
+                        print('Summarizing')
+                        summary_step(model, sess, imdb, summary_writer, summary_op)
+                    else:
+                        ops = [model.train_op, model.loss, model.conf_loss, model.bbox_loss, model.class_loss]
+                        if mc.NUM_THREAD > 0:
+                            _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(ops, options=run_options)
+                        else:
+                            feed_dict, _, _, _ = _load_data(imdb, model, load_to_placeholder=False)
+                            _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(ops, feed_dict=feed_dict)
+                    duration = time.time() - start_time
 
-        while True:
-            ckpts = set()
-            ckpt = tf.train.get_checkpoint_state(train_dir)
-            if not ckpt or ckpt.model_checkpoint_path in ckpts:
-                print('Wait %ss for new checkpoints to be saved ... ' % 60)
-                time.sleep(60)
-            else:
-                ckpts.add(ckpt.model_checkpoint_path)
-                print('Evaluating %s...' % ckpt.model_checkpoint_path)
-                eval_checkpoint(model, imdb, saver, summary_writer, test_dir, ckpt.model_checkpoint_path, eval_summary_phs)
+                    assert not np.isnan(loss_value), 'Model diverged. Total loss: %s, conf_loss: %s, bbox_loss: %s, class_loss: %s' % (loss_value, conf_loss, bbox_loss, class_loss)
+
+                    step = tf.train.global_step(sess, model.global_step)
+                    if step % mc.PRINT_STEP == 0:
+                        print('step %d, loss = %.2f' % (step, loss_value))
+                    if step % mc.CHECKPOINT_STEP == 0 or step >= mc.MAX_STEPS:
+                        print('Saving checkpoint')
+                        saver.save(sess, train_dir + 'model.ckpt', global_step=step)
+        else:
+            ap_names = []
+            for cls in imdb.classes:
+                for diff in 'easy', 'medium', 'hard':
+                    ap_names.append('APs/%s_%s' % (cls, diff))
+
+            eval_summary_phs = {}
+            for name in ap_names + ['APs/mAP', 'timing/im_detect', 'timing/im_read', 'timing/post_proc', 'num_det_per_image']:
+                eval_summary_phs[name] = tf.placeholder(tf.float32)
+            eval_summary_ops = [tf.summary.scalar(name, ph) for name, ph in eval_summary_phs.items()]
+
+            while True:
+                ckpts = set()
+                ckpt = tf.train.get_checkpoint_state(train_dir)
+                if not ckpt or ckpt.model_checkpoint_path in ckpts:
+                    print('Wait %ss for new checkpoints to be saved ... ' % 60)
+                    time.sleep(60)
+                else:
+                    ckpts.add(ckpt.model_checkpoint_path)
+                    print('Evaluating %s...' % ckpt.model_checkpoint_path)
+                    eval_checkpoint(model, imdb, saver, summary_writer, test_dir, ckpt.model_checkpoint_path, eval_summary_phs, eval_summary_ops)
 
 def _load_data(imdb, model, load_to_placeholder=True):
+    mc = model.mc
     image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, bbox_per_batch = imdb.read_batch()
 
     label_indices, bbox_indices, box_delta_values, mask_indices, box_values = [], [], [], [], []
@@ -194,24 +200,28 @@ def viz_prediction_result(model, images, bboxes, labels, batch_det_bbox, batch_d
 
         draw_box(images[i], det_bbox, [mc.CLASS_NAMES[idx] + ': %.2f'% prob for idx, prob in zip(det_class, det_prob)], (0, 0, 255))
 
-def summary_step(model, sess, imdb, summary_writer):
+def summary_step(model, sess, imdb, summary_writer, summary_op):
     feed_dict, image_per_batch, label_per_batch, bbox_per_batch = _load_data(imdb, model, load_to_placeholder=False)
     op_list = [
         model.train_op, model.loss, summary_op, model.det_boxes,
         model.det_probs, model.det_class, model.conf_loss,
         model.bbox_loss, model.class_loss
     ]
+    print('Running ops')
     _, loss_value, summary_str, det_boxes, det_probs, det_class, conf_loss, bbox_loss, class_loss = sess.run(op_list, feed_dict=feed_dict)
 
+    print('viz')
     viz_prediction_result(model, image_per_batch, bbox_per_batch, label_per_batch, det_boxes, det_class, det_probs)
     image_per_batch = bgr_to_rgb(image_per_batch)
+    print('viz summ')
     viz_summary = sess.run(model.viz_op, feed_dict={model.image_to_show: image_per_batch})
 
+    print('summ writer')
     summary_writer.add_summary(summary_str, step)
     summary_writer.add_summary(viz_summary, step)
     print('conf_loss: %s, bbox_loss: %s, class_loss: %s' % (conf_loss, bbox_loss, class_loss))
 
-def eval_checkpoint(model, imdb, saver, summary_writer, test_dir, checkpoint_path, eval_summary_phs):
+def eval_checkpoint(model, imdb, saver, summary_writer, test_dir, checkpoint_path, eval_summary_phs, eval_summary_ops):
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)) as sess:
         saver.restore(sess, checkpoint_path)
@@ -261,7 +271,7 @@ def eval_checkpoint(model, imdb, saver, summary_writer, test_dir, checkpoint_pat
             feed_dict[eval_summary_phs['APs/' + cls]] = ap
             print('    %s: %.3f' % (cls, ap))
 
-        print('    Mean average precision: %.3f' % np.mean(aps)))
+        print('    Mean average precision: %.3f' % np.mean(aps))
         feed_dict[eval_summary_phs['APs/mAP']] = np.mean(aps)
         feed_dict[eval_summary_phs['timing/im_detect']] = _t['im_detect'].average_time
         feed_dict[eval_summary_phs['timing/im_read']] = _t['im_read'].average_time
@@ -271,7 +281,7 @@ def eval_checkpoint(model, imdb, saver, summary_writer, test_dir, checkpoint_pat
         print('Analyzing detections...')
         stats, ims = imdb.do_detection_analysis_in_eval(test_dir, global_step)
 
-        eval_summary_str = sess.run([tf.summary.scalar(name, ph) for name, ph in eval_summary_phs.items()], feed_dict=feed_dict)
+        eval_summary_str = sess.run(eval_summary_ops, feed_dict=feed_dict)
         for sum_str in eval_summary_str:
             summary_writer.add_summary(sum_str, global_step)
                       

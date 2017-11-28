@@ -1,6 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 import os, sys
+import joblib
 
 from utils import util
 from easydict import EasyDict as edict
@@ -24,8 +25,7 @@ class SqueezeDetPlus(ModelSkeleton):
     def _add_forward_graph(self):
         mc = self.mc
         if mc.LOAD_PRETRAINED_MODEL:
-            assert tf.gfile.Exists(mc.PRETRAINED_MODEL_PATH), 
-                'Cannot find pretrained model at %s' % mc.PRETRAINED_MODEL_PATH
+            assert tf.gfile.Exists(mc.PRETRAINED_MODEL_PATH), 'Cannot find pretrained model at %s' % mc.PRETRAINED_MODEL_PATH
             self.caffemodel_weight = joblib.load(mc.PRETRAINED_MODEL_PATH)
 
         self.override_ternary = False
@@ -68,6 +68,7 @@ class SqueezeDetPlus(ModelSkeleton):
         Returns:
           fire layer operation.
         """
+        mc = self.mc
         sq1x1 = self._conv_layer(
             layer_name+'/squeeze1x1', inputs, filters=s1x1, size=1, stride=1,
             padding='SAME', stddev=stddev, freeze=freeze, override_ternary=True)
