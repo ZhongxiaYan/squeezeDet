@@ -3,7 +3,6 @@ from __future__ import absolute_import, division, print_function
 import os, sys
 import joblib
 
-from utils import util
 from easydict import EasyDict as edict
 import numpy as np
 import tensorflow as tf
@@ -13,14 +12,15 @@ def load_model(mc):
     return SqueezeDetPlus(mc)
 
 class SqueezeDetPlus(ModelSkeleton):
-    def __init__(self, mc, gpu_id=0):
-        ModelSkeleton.__init__(self, mc)
+    def __init__(self, mc):
+        with tf.device('/gpu:0'):
+            ModelSkeleton.__init__(self, mc)
 
-        self._add_forward_graph()
-        self._add_interpretation_graph()
-        self._add_loss_graph()
-        self._add_train_graph()
-        self._add_viz_graph()
+            self._add_forward_graph()
+            self._add_interpretation_graph()
+            self._add_loss_graph()
+            self._add_train_graph()
+            self._add_viz_graph()
 
     def _add_forward_graph(self):
         mc = self.mc
@@ -76,11 +76,16 @@ class SqueezeDetPlus(ModelSkeleton):
             layer_name+'/expand1x1', sq1x1, filters=e1x1, size=1, stride=1,
             padding='SAME', stddev=stddev, freeze=freeze, override_ternary=True)
         num_ternary_filters = int(e3x3 * mc.TERNARY_RATIO)
-        ex3x3 = self._conv_layer(
-            layer_name+'/expand3x3', sq1x1, filters=num_ternary_filters, size=3, stride=1,
-            padding='SAME', stddev=stddev, freeze=freeze)
-        ex3x3_full = self._conv_layer(
-            layer_name+'/expand3x3_full', sq1x1, filters=e3x3-num_ternary_filters, size=3, stride=1,
-            padding='SAME', stddev=stddev, freeze=freeze, override_ternary=True)
-
-        return tf.concat([ex1x1, ex3x3, ex3x3_full], 3, name=layer_name + '/concat')
+        num_full_filters = e3x3 - num_ternary_filters
+        concat_layers = [ex1x1]
+        if num_ternary_filters:
+            ex3x3 = self._conv_layer(
+                layer_name+'/expand3x3', sq1x1, filters=num_ternary_filters, size=3, stride=1,
+                padding='SAME', stddev=stddev, freeze=freeze)
+            concat_layers.append(ex3x3)
+        if num_full_filters:
+            ex3x3_full = self._conv_layer(
+                layer_name+'/expand3x3_full', sq1x1, filters=e3x3-num_ternary_filters, size=3, stride=1,
+                padding='SAME', stddev=stddev, freeze=freeze, override_ternary=True)
+            concat_layers.append(ex3x3_full)
+        return tf.concat(concat_layers, 3, name=layer_name + '/concat')
