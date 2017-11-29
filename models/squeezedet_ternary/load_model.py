@@ -28,9 +28,10 @@ class SqueezeDetPlus(ModelSkeleton):
             assert tf.gfile.Exists(mc.PRETRAINED_MODEL_PATH), 'Cannot find pretrained model at %s' % mc.PRETRAINED_MODEL_PATH
             self.caffemodel_weight = joblib.load(mc.PRETRAINED_MODEL_PATH)
 
-        self.override_ternary = False
         conv1 = self._conv_layer('conv1', self.image_input, filters=96, size=7, stride=2, padding='VALID', freeze=True, override_ternary=True)
         pool1 = self._pooling_layer('pool1', conv1, size=3, stride=2, padding='VALID')
+
+        self.override_ternary = True
 
         fire2 = self._fire_layer('fire2', pool1, s1x1=96, e1x1=64, e3x3=64, freeze=False)
 
@@ -41,6 +42,9 @@ class SqueezeDetPlus(ModelSkeleton):
         fire5 = self._fire_layer('fire5', pool4, s1x1=192, e1x1=128, e3x3=128, freeze=False)
         fire6 = self._fire_layer('fire6', fire5, s1x1=288, e1x1=192, e3x3=192, freeze=False)
         fire7 = self._fire_layer('fire7', fire6, s1x1=288, e1x1=192, e3x3=192, freeze=False)
+
+        self.override_ternary = False
+
         fire8 = self._fire_layer('fire8', fire7, s1x1=384, e1x1=256, e3x3=256, freeze=False)
         pool8 = self._pooling_layer('pool8', fire8, size=3, stride=2, padding='VALID')
 
@@ -75,17 +79,16 @@ class SqueezeDetPlus(ModelSkeleton):
         ex1x1 = self._conv_layer(
             layer_name+'/expand1x1', sq1x1, filters=e1x1, size=1, stride=1,
             padding='SAME', stddev=stddev, freeze=freeze, override_ternary=True)
-        num_ternary_filters = int(e3x3 * mc.TERNARY_RATIO)
-        num_full_filters = e3x3 - num_ternary_filters
         concat_layers = [ex1x1]
-        if num_ternary_filters:
+
+        if self.override_ternary:
+            ratio_ternary_list = [(1, False)]
+        else:
+            full_ratio = 1 - sum(mc.TERNARY_RATIOS)
+            ratio_ternary_list = [(full_ratio, False)] + [(ratio, True) for ratio in mc.TERNARY_RATIOS]
+        for i, (ratio, is_ternary) in enumerate(ratio_ternary_list):
             ex3x3 = self._conv_layer(
-                layer_name+'/expand3x3', sq1x1, filters=num_ternary_filters, size=3, stride=1,
-                padding='SAME', stddev=stddev, freeze=freeze)
+                layer_name+'/expand3x3_%s' % i, sq1x1, filters=int(e3x3 * ratio), size=3, stride=1,
+                padding='SAME', stddev=stddev, freeze=freeze, override_ternary=(not is_ternary))
             concat_layers.append(ex3x3)
-        if num_full_filters:
-            ex3x3_full = self._conv_layer(
-                layer_name+'/expand3x3_full', sq1x1, filters=e3x3-num_ternary_filters, size=3, stride=1,
-                padding='SAME', stddev=stddev, freeze=freeze, override_ternary=True)
-            concat_layers.append(ex3x3_full)
         return tf.concat(concat_layers, 3, name=layer_name + '/concat')

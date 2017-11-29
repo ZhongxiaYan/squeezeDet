@@ -43,7 +43,6 @@ def main(argv):
         if mc.IS_TRAINING:
             kitti_set = 'train'
             summary_dir = train_dir
-            saver_vars = tf.global_variables()
         else:
             kitti_set = 'val'
             summary_dir = test_dir
@@ -117,7 +116,7 @@ def main(argv):
             saver = tf.train.Saver(tf.global_variables())
             save_model_statistics(model, train_dir + 'model_metrics.txt')
 
-            gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.75)
+            gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
             sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options))
             summary_op = tf.summary.merge_all()
 
@@ -142,51 +141,49 @@ def main(argv):
             run_options = tf.RunOptions(timeout_in_ms=60000)
 
             step = tf.train.global_step(sess, model.global_step)
-            while step < mc.MAX_STEPS:
-                if coord.should_stop():
-                    sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
-                    coord.request_stop()
-                    coord.join(threads)
-                    break
+            try:
+                while step < mc.MAX_STEPS and not coord.should_stop():
+                    start_time = time.time()
+                    if step % mc.SUMMARY_STEP == 0:
+                        feed_dict, image_per_batch, label_per_batch, bbox_per_batch = _load_data(load_to_placeholder=False)
+                        op_list = [
+                            model.train_op, model.loss, summary_op, model.det_boxes,
+                            model.det_probs, model.det_class, model.conf_loss,
+                            model.bbox_loss, model.class_loss
+                        ]
+                        _, loss_value, summary_str, det_boxes, det_probs, det_class, conf_loss, bbox_loss, class_loss = sess.run(op_list, feed_dict=feed_dict)
 
-                start_time = time.time()
-                if step % mc.SUMMARY_STEP == 0:
-                    feed_dict, image_per_batch, label_per_batch, bbox_per_batch = _load_data(load_to_placeholder=False)
-                    op_list = [
-                        model.train_op, model.loss, summary_op, model.det_boxes,
-                        model.det_probs, model.det_class, model.conf_loss,
-                        model.bbox_loss, model.class_loss
-                    ]
-                    _, loss_value, summary_str, det_boxes, det_probs, det_class, conf_loss, bbox_loss, class_loss = sess.run(op_list, feed_dict=feed_dict)
+                        viz_prediction_result(model, image_per_batch, bbox_per_batch, label_per_batch, det_boxes, det_class, det_probs)
+                        image_per_batch = bgr_to_rgb(image_per_batch)
+                        viz_summary = sess.run(model.viz_op, feed_dict={model.image_to_show: image_per_batch})
 
-                    viz_prediction_result(model, image_per_batch, bbox_per_batch, label_per_batch, det_boxes, det_class, det_probs)
-                    image_per_batch = bgr_to_rgb(image_per_batch)
-                    viz_summary = sess.run(model.viz_op, feed_dict={model.image_to_show: image_per_batch})
-
-                    summary_writer.add_summary(summary_str, step)
-                    summary_writer.add_summary(viz_summary, step)
-                    print('conf_loss: %s, bbox_loss: %s, class_loss: %s' % (conf_loss, bbox_loss, class_loss))
-                else:
-                    ops = [model.train_op, model.loss, model.conf_loss, model.bbox_loss, model.class_loss]
-                    if mc.NUM_THREAD > 0:
-                        _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(ops, options=run_options)
+                        summary_writer.add_summary(summary_str, step)
+                        summary_writer.add_summary(viz_summary, step)
+                        print('conf_loss: %s, bbox_loss: %s, class_loss: %s' % (conf_loss, bbox_loss, class_loss))
                     else:
-                        feed_dict, _, _, _ = _load_data(load_to_placeholder=False)
-                        _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(ops, feed_dict=feed_dict)
-                duration = time.time() - start_time
+                        ops = [model.train_op, model.loss, model.conf_loss, model.bbox_loss, model.class_loss]
+                        if mc.NUM_THREAD > 0:
+                            _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(ops, options=run_options)
+                        else:
+                            feed_dict, _, _, _ = _load_data(load_to_placeholder=False)
+                            _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(ops, feed_dict=feed_dict)
+                    duration = time.time() - start_time
 
-                assert not np.isnan(loss_value), 'Model diverged. Total loss: %s, conf_loss: %s, bbox_loss: %s, class_loss: %s' % (loss_value, conf_loss, bbox_loss, class_loss)
+                    assert not np.isnan(loss_value), 'Model diverged. Total loss: %s, conf_loss: %s, bbox_loss: %s, class_loss: %s' % (loss_value, conf_loss, bbox_loss, class_loss)
 
-                step = tf.train.global_step(sess, model.global_step)
-                if step % mc.PRINT_STEP == 0:
-                    print('step %d, loss = %.2f' % (step, loss_value))
-                if step % mc.CHECKPOINT_STEP == 0 or step >= mc.MAX_STEPS:
-                    print('Saving checkpoint')
-                    saver.save(sess, train_dir + 'model.ckpt', global_step=step)
-            sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
-            print('Finished training')
-            coord.request_stop()
-            coord.join(threads)
+                    step = tf.train.global_step(sess, model.global_step)
+                    if step % mc.PRINT_STEP == 0:
+                        print('step %d, loss = %.2f' % (step, loss_value))
+                    if step % mc.CHECKPOINT_STEP == 0 or step >= mc.MAX_STEPS:
+                        print('Saving checkpoint')
+                        saver.save(sess, train_dir + 'model.ckpt', global_step=step)
+            except KeyboardInterrupt:
+                pass
+            finally:
+                print('Finished training')
+                sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
+                coord.request_stop()
+                coord.join(threads)
         else:
             saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.MODEL_VARIABLES))
             ap_names = []
@@ -227,7 +224,7 @@ def viz_prediction_result(model, images, bboxes, labels, batch_det_bbox, batch_d
         draw_box(images[i], det_bbox, [mc.CLASS_NAMES[idx] + ': %.2f'% prob for idx, prob in zip(det_class, det_prob)], (0, 0, 255))
 
 def eval_checkpoint(model, imdb, saver, summary_writer, test_dir, checkpoint_path, eval_summary_phs, eval_summary_ops):
-    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.05)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)) as sess:
         global_step = checkpoint_path.split('/')[-1].split('-')[-1]
     
