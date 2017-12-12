@@ -1,0 +1,9 @@
+{
+    "PRINT_STEP" : 10,
+    "SUMMARY_STEP" : 100,
+    "CHECKPOINT_STEP": 500,
+    "MAX_STEPS" : 30000,
+    "TERNARY" : 0.1,
+    "TERNARY_RATIOS" : [0.5],
+    "BATCH_SIZE" : 16
+}
