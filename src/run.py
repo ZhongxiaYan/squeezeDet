@@ -14,7 +14,7 @@ from config.kitti_squeezeDetPlus_config import kitti_squeezeDetPlus_config
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 save_roots = {
-    'jeffzhang' : '/media/jeffzhang/1FBD76B338533CA0/video_prediction',
+    'jeffzhang' : '/media/jeffzhang/1FBD76B338533CA0/squeezeDet',
     'ubuntu' : ''
 }
 
@@ -22,6 +22,7 @@ flags = tf.app.flags
 flags.DEFINE_string('gpu', '0', 'gpu id.')
 flags.DEFINE_boolean('train', True, 'True for training phase, false for evaluation.')
 flags.DEFINE_string('save_root', save_roots[os.environ['USER']], 'Checkpoints will be saved in subdirectories of this root. Symlinks will point to train subdirectories.')
+flags.DEFINE_boolean('debug', False, 'If true, train and validate for 1 iteration.')
 FLAGS = flags.FLAGS
 
 def main(argv):
@@ -54,6 +55,9 @@ def main(argv):
                 print('Creating symlink %s -> %s' % (orig_dir, save_dir))
             elif not os.path.islink(orig_dir):
                 raise RuntimeError('%s exists but is not a link. Cannot create new link to %s' % (orig_dir, save_dir))
+
+    if FLAGS.debug:
+        config.PRINT_STEP = config.SUMMARY_STEP = config.CHECKPOINT_STEP = config.MAX_STEPS = 1
 
     if mc.IS_TRAINING:
         kitti_set = 'train'
