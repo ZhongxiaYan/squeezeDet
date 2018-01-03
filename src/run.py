@@ -23,12 +23,17 @@ flags.DEFINE_string('gpu', '0', 'gpu id.')
 flags.DEFINE_boolean('train', True, 'True for training phase, false for evaluation.')
 flags.DEFINE_string('save_root', save_roots[os.environ['USER']], 'Checkpoints will be saved in subdirectories of this root. Symlinks will point to train subdirectories.')
 flags.DEFINE_boolean('debug', False, 'If true, train and validate for 1 iteration.')
+flags.DEFINE_string('eval_start_checkpoint', '', 'Evaluate all checkpoints after this number')
+
 FLAGS = flags.FLAGS
 
-def main(argv):
-    config_dir = os.path.abspath(argv[1])
+def process_model_path(model_path):
+    config_dir = os.path.abspath(model_path)
     assert config_dir.startswith(Models), 'Invalid config directory %s' % config_dir
-    model_name, config_name = config_dir[len(Models):].split('/')[:2]
+    return config_dir[len(Models):].split('/')[:2]
+
+def main(argv):
+    model_name, config_name = process_model_path(argv[1])
 
     os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
     model_dir = Models + model_name + '/'
@@ -57,7 +62,7 @@ def main(argv):
                 raise RuntimeError('%s exists but is not a link. Cannot create new link to %s' % (orig_dir, save_dir))
 
     if FLAGS.debug:
-        config.PRINT_STEP = config.SUMMARY_STEP = config.CHECKPOINT_STEP = config.MAX_STEPS = 1
+        mc.PRINT_STEP = mc.SUMMARY_STEP = mc.CHECKPOINT_STEP = mc.MAX_STEPS = 1
 
     if mc.IS_TRAINING:
         kitti_set = 'train'
@@ -139,14 +144,24 @@ def main(argv):
         sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options))
         summary_op = tf.summary.merge_all()
 
-        ckpt = tf.train.get_checkpoint_state(train_dir)
-        if ckpt:
-            saver = tf.train.Saver(get_checkpoint_variables(ckpt.model_checkpoint_path))
-            print('Loading checkpoint:', ckpt.model_checkpoint_path)
-            sess.run(tf.global_variables_initializer())
-            saver.restore(sess, ckpt.model_checkpoint_path)
+        if 'RESTORE_MODEL' in mc:
+            checkpoint_path = Models + mc.RESTORE_MODEL
+            restore_training_variables = False
         else:
-            saver = tf.train.Saver(tf.global_variables())
+            ckpt = tf.train.get_checkpoint_state(train_dir)
+            if ckpt:
+                checkpoint_path = ckpt.model_checkpoint_path
+            else:
+                checkpoint_path = None
+            restore_training_variables = True
+        if checkpoint_path:
+            restore_variables = tf.global_variables() if restore_training_variables else tf.model_variables()
+            saver = tf.train.Saver(var_list=get_checkpoint_variables(checkpoint_path, restore_variables), max_to_keep=None)
+            print('Loading checkpoint:', checkpoint_path)
+            sess.run(tf.global_variables_initializer())
+            saver.restore(sess, checkpoint_path)
+        else:
+            saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=None)
             print('No checkpoint. Initialize from scratch')
             sess.run(tf.global_variables_initializer())
         
@@ -181,7 +196,7 @@ def main(argv):
 
                     summary_writer.add_summary(summary_str, step)
                     summary_writer.add_summary(viz_summary, step)
-                    print('step: %s, conf_loss: %s, bbox_loss: %s, class_loss: %s' % (step, conf_loss, bbox_loss, class_loss))
+                    print('step %s, conf_loss: %s, bbox_loss: %s, class_loss: %s' % (step, conf_loss, bbox_loss, class_loss))
                 else:
                     ops = [model.train_op, model.loss, model.conf_loss, model.bbox_loss, model.class_loss]
                     if mc.NUM_THREAD > 0:
@@ -217,26 +232,37 @@ def main(argv):
             eval_summary_phs[name] = tf.placeholder(tf.float32)
         eval_summary_ops = [tf.summary.scalar(name, ph) for name, ph in eval_summary_phs.items()]
 
-        ckpts = set()
+        seen_checkpoints = set()
+
+        def eval_checkpoint_path(checkpoint_path):
+            seen_checkpoints.add(checkpoint_path)
+            print('Evaluating %s...' % checkpoint_path)
+            eval_checkpoint(model, imdb, summary_writer, test_dir, checkpoint_path, eval_summary_phs, eval_summary_ops)            
+
+        if FLAGS.eval_start_checkpoint:
+            start_step = int(FLAGS.eval_start_checkpoint)
+            checkpoints = tf.train.get_checkpoint_state(train_dir).all_model_checkpoint_paths
+            for checkpoint_path in checkpoints:
+                step = int(checkpoint_path.split('model.ckpt-')[1])
+                if step >= start_step:
+                    eval_checkpoint_path(checkpoint_path)
+
         while True:
             ckpt = tf.train.get_checkpoint_state(train_dir)
-            if not ckpt or ckpt.model_checkpoint_path in ckpts:
+            if not ckpt or ckpt.model_checkpoint_path in seen_checkpoints:
                 print('Wait %ss for new checkpoints to be saved ... ' % 60)
                 time.sleep(60)
             else:
-                ckpts.add(ckpt.model_checkpoint_path)
-                print('Evaluating %s...' % ckpt.model_checkpoint_path)
-                eval_checkpoint(model, imdb, summary_writer, test_dir, ckpt.model_checkpoint_path, eval_summary_phs, eval_summary_ops)
+                eval_checkpoint_path(ckpt.model_checkpoint_path)
 
-def get_checkpoint_variables(checkpoint_path):
+def get_checkpoint_variables(checkpoint_path, graph_variables):
     print(checkpoint_path)
     from tensorflow.python import pywrap_tensorflow
     reader = pywrap_tensorflow.NewCheckpointReader(checkpoint_path)
     saved_variables = set(reader.get_variable_to_shape_map().keys())
-    graph_variables = { v.name.encode('ascii').split(':')[0] : v for v in tf.global_variables() }
+    graph_variables = { v.name.encode('ascii').split(':')[0] : v for v in graph_variables }
     var_list = { n : v for n, v in graph_variables.items() if n in saved_variables }
     return var_list
-
 
 def viz_prediction_result(model, images, bboxes, labels, batch_det_bbox, batch_det_class, batch_det_prob):
     mc = model.mc
@@ -255,7 +281,7 @@ def viz_prediction_result(model, images, bboxes, labels, batch_det_bbox, batch_d
         draw_box(images[i], det_bbox, [mc.CLASS_NAMES[idx] + ': %.2f'% prob for idx, prob in zip(det_class, det_prob)], (0, 0, 255))
 
 def eval_checkpoint(model, imdb, summary_writer, test_dir, checkpoint_path, eval_summary_phs, eval_summary_ops):
-    saver = tf.train.Saver(get_checkpoint_variables(checkpoint_path))
+    saver = tf.train.Saver(get_checkpoint_variables(checkpoint_path, tf.model_variables()))
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.05)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)) as sess:
         global_step = checkpoint_path.split('/')[-1].split('-')[-1]

@@ -1,3 +1,39 @@
+Baseline parameter sizes
+conv1: 14208
+fire2/squeeze1x1: 9312
+fire2/expand1x1: 6208
+fire2/expand3x3: 55360
+fire3/squeeze1x1: 12384
+fire3/expand1x1: 6208
+fire3/expand3x3: 55360
+fire4/squeeze1x1: 24768
+fire4/expand1x1: 24704
+fire4/expand3x3: 221312
+fire5/squeeze1x1: 49344
+fire5/expand1x1: 24704
+fire5/expand3x3: 221312
+fire6/squeeze1x1: 74016
+fire6/expand1x1: 55488
+fire6/expand3x3: 497856
+fire7/squeeze1x1: 110880
+fire7/expand1x1: 55488
+fire7/expand3x3: 497856
+fire8/squeeze1x1: 147840
+fire8/expand1x1: 98560
+fire8/expand3x3: 884992
+fire9/squeeze1x1: 196992
+fire9/expand1x1: 98560
+fire9/expand3x3: 884992
+fire10/squeeze1x1: 196992
+fire10/expand1x1: 98560
+fire10/expand3x3: 884992
+fire11/squeeze1x1: 196992
+fire11/expand1x1: 98560
+fire11/expand3x3: 884992
+conv12: 331848
+total: 7021640
+
+Baseline results
 Evaluation summary:
   Average number of detections per image: 11.8361400695:
   Timing:
