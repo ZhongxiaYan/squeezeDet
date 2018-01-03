@@ -131,8 +131,8 @@ def main(argv):
             if not sess.run(model.FIFOQueue.is_closed()):
                 coord.request_stop(e)
 
+
     if mc.IS_TRAINING:
-        saver = tf.train.Saver(tf.global_variables())
         save_model_statistics(model, train_dir + 'model_metrics.txt')
 
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
@@ -141,9 +141,12 @@ def main(argv):
 
         ckpt = tf.train.get_checkpoint_state(train_dir)
         if ckpt:
+            saver = tf.train.Saver(get_checkpoint_variables(ckpt.model_checkpoint_path))
             print('Loading checkpoint:', ckpt.model_checkpoint_path)
+            sess.run(tf.global_variables_initializer())
             saver.restore(sess, ckpt.model_checkpoint_path)
         else:
+            saver = tf.train.Saver(tf.global_variables())
             print('No checkpoint. Initialize from scratch')
             sess.run(tf.global_variables_initializer())
         
@@ -178,7 +181,7 @@ def main(argv):
 
                     summary_writer.add_summary(summary_str, step)
                     summary_writer.add_summary(viz_summary, step)
-                    print('conf_loss: %s, bbox_loss: %s, class_loss: %s' % (conf_loss, bbox_loss, class_loss))
+                    print('step: %s, conf_loss: %s, bbox_loss: %s, class_loss: %s' % (step, conf_loss, bbox_loss, class_loss))
                 else:
                     ops = [model.train_op, model.loss, model.conf_loss, model.bbox_loss, model.class_loss]
                     if mc.NUM_THREAD > 0:
@@ -204,7 +207,6 @@ def main(argv):
             coord.request_stop()
             coord.join(threads)
     else:
-        saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.MODEL_VARIABLES))
         ap_names = []
         for cls in imdb.classes:
             for diff in 'easy', 'medium', 'hard':
@@ -224,7 +226,17 @@ def main(argv):
             else:
                 ckpts.add(ckpt.model_checkpoint_path)
                 print('Evaluating %s...' % ckpt.model_checkpoint_path)
-                eval_checkpoint(model, imdb, saver, summary_writer, test_dir, ckpt.model_checkpoint_path, eval_summary_phs, eval_summary_ops)
+                eval_checkpoint(model, imdb, summary_writer, test_dir, ckpt.model_checkpoint_path, eval_summary_phs, eval_summary_ops)
+
+def get_checkpoint_variables(checkpoint_path):
+    print(checkpoint_path)
+    from tensorflow.python import pywrap_tensorflow
+    reader = pywrap_tensorflow.NewCheckpointReader(checkpoint_path)
+    saved_variables = set(reader.get_variable_to_shape_map().keys())
+    graph_variables = { v.name.encode('ascii').split(':')[0] : v for v in tf.global_variables() }
+    var_list = { n : v for n, v in graph_variables.items() if n in saved_variables }
+    return var_list
+
 
 def viz_prediction_result(model, images, bboxes, labels, batch_det_bbox, batch_det_class, batch_det_prob):
     mc = model.mc
@@ -242,7 +254,8 @@ def viz_prediction_result(model, images, bboxes, labels, batch_det_bbox, batch_d
 
         draw_box(images[i], det_bbox, [mc.CLASS_NAMES[idx] + ': %.2f'% prob for idx, prob in zip(det_class, det_prob)], (0, 0, 255))
 
-def eval_checkpoint(model, imdb, saver, summary_writer, test_dir, checkpoint_path, eval_summary_phs, eval_summary_ops):
+def eval_checkpoint(model, imdb, summary_writer, test_dir, checkpoint_path, eval_summary_phs, eval_summary_ops):
+    saver = tf.train.Saver(get_checkpoint_variables(checkpoint_path))
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.05)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)) as sess:
         global_step = checkpoint_path.split('/')[-1].split('-')[-1]
@@ -250,6 +263,7 @@ def eval_checkpoint(model, imdb, saver, summary_writer, test_dir, checkpoint_pat
         if os.path.exists(os.path.join(test_dir, 'detection_files_' + str(global_step))):
             print('Already evaluated')
             return
+        sess.run(tf.global_variables_initializer())
         saver.restore(sess, checkpoint_path)
                       
         num_images = len(imdb.image_idx)

@@ -1,0 +1,25 @@
+Evaluation summary:
+  Average number of detections per image: 11.8361400695:
+  Timing:
+    im_read: 0.028s detect: 0.025s misc: 0.016s
+  Average precisions:
+    car_easy: 0.928
+    car_medium: 0.877
+    car_hard: 0.790
+    pedestrian_easy: 0.832
+    pedestrian_medium: 0.753
+    pedestrian_hard: 0.717
+    cyclist_easy: 0.857
+    cyclist_medium: 0.804
+    cyclist_hard: 0.771
+    Mean average precision: 0.814
+Analyzing detections...
+Detection Analysis:
+    Number of detections: 17108.0
+    Number of objects: 17606.0
+    Percentage of correct detections: 0.854804769698
+    Percentage of localization error: 0.0652910918868
+    Percentage of classification error: 0.00584521861118
+    Percentage of background error: 0.0724222585925
+    Percentage of repeated detections: 0.00163666121113
+    Recall: 0.830625922981
