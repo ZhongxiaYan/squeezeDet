@@ -3,7 +3,7 @@
     "PRINT_STEP" : 10,
     "SUMMARY_STEP" : 100,
     "CHECKPOINT_STEP": 1000,
-    "MAX_STEPS" : 30000,
+    "MAX_STEPS" : 40000,
     "TERNARY" : 0.1,
     "BATCH_SIZE" : 16
 }
