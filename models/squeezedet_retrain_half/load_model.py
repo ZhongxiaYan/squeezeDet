@@ -80,7 +80,7 @@ class SqueezeDetPlus(ModelSkeleton):
             padding='SAME', stddev=stddev, freeze=freeze)
         return tf.concat([ex1x1, ex3x3], 3, name=layer_name + '/concat')
 
-    def _fire_layer_ternary(self, layer_name, inputs, s1x1, e1x1, e3x3, t3x3, stddev=0.01, freeze=False):
+    def _fire_layer_ternary(self, layer_name, inputs, s1x1, e1x1, e3x3, t3x3, stddev=0.01):
         """
         Fire layer constructor.
 
@@ -90,7 +90,7 @@ class SqueezeDetPlus(ModelSkeleton):
           s1x1: number of 1x1 filters in squeeze layer.
           e1x1: number of 1x1 filters in expand layer.
           e3x3: number of 3x3 filters in expand layer.
-          freeze: if true, do not train parameters in this layer.
+          t3x3: number of 3x3 ternarized filters in expand layer
         Returns:
           fire layer operation.
         """

@@ -232,11 +232,12 @@ def main(argv):
             eval_summary_phs[name] = tf.placeholder(tf.float32)
         eval_summary_ops = [tf.summary.scalar(name, ph) for name, ph in eval_summary_phs.items()]
 
-        seen_checkpoints = set()
-
         def eval_checkpoint_path(checkpoint_path):
-            seen_checkpoints.add(checkpoint_path)
             print('Evaluating %s...' % checkpoint_path)
+            global_step = checkpoint_path.split('/')[-1].split('-')[-1]
+            if os.path.exists(os.path.join(test_dir, 'detection_files_' + str(global_step))):
+                print('Already evaluated')
+                return
             eval_checkpoint(model, imdb, summary_writer, test_dir, checkpoint_path, eval_summary_phs, eval_summary_ops)            
 
         if FLAGS.eval_start_checkpoint:
@@ -249,9 +250,9 @@ def main(argv):
 
         while True:
             ckpt = tf.train.get_checkpoint_state(train_dir)
-            if not ckpt or ckpt.model_checkpoint_path in seen_checkpoints:
-                print('Wait %ss for new checkpoints to be saved ... ' % 60)
-                time.sleep(60)
+            if not ckpt:
+                print('Wait %ss for new checkpoints to be saved ... ' % 30)
+                time.sleep(30)
             else:
                 eval_checkpoint_path(ckpt.model_checkpoint_path)
 
@@ -281,14 +282,9 @@ def viz_prediction_result(model, images, bboxes, labels, batch_det_bbox, batch_d
         draw_box(images[i], det_bbox, [mc.CLASS_NAMES[idx] + ': %.2f'% prob for idx, prob in zip(det_class, det_prob)], (0, 0, 255))
 
 def eval_checkpoint(model, imdb, summary_writer, test_dir, checkpoint_path, eval_summary_phs, eval_summary_ops):
-    saver = tf.train.Saver(get_checkpoint_variables(checkpoint_path, tf.model_variables()))
-    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.05)
+    saver = tf.train.Saver(get_checkpoint_variables(checkpoint_path, tf.global_variables()))
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.05, allow_growth=True)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)) as sess:
-        global_step = checkpoint_path.split('/')[-1].split('-')[-1]
-    
-        if os.path.exists(os.path.join(test_dir, 'detection_files_' + str(global_step))):
-            print('Already evaluated')
-            return
         sess.run(tf.global_variables_initializer())
         saver.restore(sess, checkpoint_path)
                       
